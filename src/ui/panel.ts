@@ -34,17 +34,18 @@ class BlastShieldPanelProvider implements vscode.WebviewViewProvider {
         view.webview.options = { enableScripts: true };
 
         view.webview.onDidReceiveMessage(async (msg) => {
-            if (!lastScan) { return; }
-
             switch (msg.type) {
+                case "scanProject":
+                    vscode.commands.executeCommand("blastshield.scan");
+                    break;
                 case "fixIssue":
-                    vscode.commands.executeCommand("blastshield.fixIssue", msg.issueId);
+                    if (lastScan) { vscode.commands.executeCommand("blastshield.fixIssue", msg.issueId); }
                     break;
                 case "viewDiff":
-                    vscode.commands.executeCommand("blastshield.viewIssueDiff", msg.issueId);
+                    if (lastScan) { vscode.commands.executeCommand("blastshield.viewIssueDiff", msg.issueId); }
                     break;
                 case "fixAll":
-                    vscode.commands.executeCommand("blastshield.fixAll");
+                    if (lastScan) { vscode.commands.executeCommand("blastshield.fixAll"); }
                     break;
             }
         });
@@ -60,15 +61,72 @@ function buildEmptyHtml(): string {
     return /* html */ `
     <!DOCTYPE html>
     <html lang="en">
-    <head><meta charset="UTF-8"></head>
-    <body style="padding:1.2rem;color:var(--vscode-editor-foreground);font-family:var(--vscode-font-family),sans-serif;">
-        <div style="text-align:center;margin-top:2rem;opacity:0.6;">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <head><meta charset="UTF-8">
+    <style>
+        body {
+            padding: 1.2rem;
+            color: var(--vscode-editor-foreground);
+            font-family: var(--vscode-font-family), sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 60vh;
+        }
+        .shield-icon {
+            opacity: 0.7;
+            animation: pulse 2.5s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; transform: scale(1); }
+            50% { opacity: 0.9; transform: scale(1.05); }
+        }
+        .scan-btn {
+            margin-top: 1.5rem;
+            padding: 12px 28px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            background: linear-gradient(135deg, #0078d4, #00b4d8);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            letter-spacing: 0.3px;
+        }
+        .scan-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(0, 120, 212, 0.4);
+            background: linear-gradient(135deg, #006abc, #009ec3);
+        }
+        .scan-btn:active {
+            transform: translateY(0);
+        }
+        .subtitle {
+            font-size: 0.82rem;
+            opacity: 0.55;
+            margin-top: 0.6rem;
+            text-align: center;
+            line-height: 1.5;
+        }
+    </style>
+    </head>
+    <body>
+        <div class="shield-icon">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             </svg>
-            <h3 style="margin-top:0.8rem;">BlastShield</h3>
-            <p style="font-size:0.85rem;">No analysis yet.<br/>Run <b>BlastShield: Scan Project</b> to start.</p>
         </div>
+        <h3 style="margin-top:0.8rem;margin-bottom:0;">BlastShield</h3>
+        <p class="subtitle">AI-powered deployment safety</p>
+        <button class="scan-btn" onclick="scanRepo()">Scan This Repo</button>
+        <p class="subtitle">Detects production-breaking failures<br/>before they ship.</p>
+        <script>
+            const vscode = acquireVsCodeApi();
+            function scanRepo() {
+                vscode.postMessage({ type: 'scanProject' });
+            }
+        </script>
     </body>
     </html>`;
 }
