@@ -1,6 +1,6 @@
 <div align="center">
 
-# �️ BlastShield
+# 🛡️ BlastShield
 
 ### AI-Powered Deployment Safety for VS Code
 
@@ -9,8 +9,8 @@
 [![VS Code](https://img.shields.io/badge/VS%20Code-Extension-007ACC?style=for-the-badge&logo=visual-studio-code&logoColor=white)](https://code.visualstudio.com/)
 [![Python](https://img.shields.io/badge/Backend-Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![AWS](https://img.shields.io/badge/Deployed%20on-AWS-FF9900?style=for-the-badge&logo=amazon-web-services&logoColor=white)](https://aws.amazon.com)
-[![API Status](https://img.shields.io/badge/API-Live-brightgreen?style=for-the-badge&logo=statuspage&logoColor=white)](http://3.84.151.23/health)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9C%94-brightgreen?style=for-the-badge)](#-open-source)
 
 ---
 
@@ -18,7 +18,13 @@
 
 </div>
 
-## � The Problem
+## 🔓 Open Source
+
+BlastShield is **fully open source**. You are free to clone, modify, and self-host the extension and its backend.
+
+> **Note:** The extension requires a running BlastShield backend to function. If you're setting up from this repo, you'll need to deploy your own backend instance and provide your own AI API key (Groq). See [Backend Setup](#-backend-setup) below.
+
+## 💥 The Problem
 
 Every engineering team has experienced it:
 
@@ -99,7 +105,7 @@ Know which tests will break **before running them**:
         │              │                     │
         ▼              │                     │
 ┌───────────────────────────────────────────────────────────┐
-│                  AWS EC2 Backend                          │
+│                  Your Backend Server                       │
 │  ┌────────────────┐  ┌───────────────────────────────┐   │
 │  │  /scan         │  │  /pr-scan                     │   │
 │  │  Full Project  │  │  PR Changed Files Only        │   │
@@ -131,19 +137,23 @@ Know which tests will break **before running them**:
 code --install-extension blastshield-0.0.1.vsix
 ```
 
-### Backend (Deployed on AWS EC2)
+### Configuration
 
-The backend API is already live and deployed:
+The extension reads the backend URL from a `.env` file in your workspace root:
 
+```bash
+# Copy the example env file
+cp .env.example .env
+
+# Edit .env and set your backend URL
+BLASTSHIELD_API_URL=https://your-backend-url.com
 ```
-🟢 API Endpoint:  http://3.84.151.23
-🟢 Health Check:  http://3.84.151.23/health
-🟢 Full Scan:     POST /scan
-🟢 PR Scan:       POST /pr-scan
-```
 
-<details>
-<summary>Self-host your own backend</summary>
+> **Important:** Never commit your `.env` file. It is already included in `.gitignore`.
+
+## 🔧 Backend Setup
+
+To run BlastShield, you need to deploy your own backend. The backend is a Python Flask server that uses the Groq API for AI-powered analysis.
 
 ```bash
 git clone https://github.com/Deepesh1024/blastshield-backend.git
@@ -151,20 +161,87 @@ cd blastshield-backend
 
 pip install flask flask-cors groq gunicorn
 
-export GROQ_API_KEY="your-key-here"
+export GROQ_API_KEY="your-groq-api-key"
 sudo gunicorn backend:app --bind 0.0.0.0:80 --workers 2 --timeout 120
 ```
-</details>
+
+You'll need a **Groq API key** — get one free at [console.groq.com](https://console.groq.com).
+
+## 📡 API Reference
+
+The backend exposes the following endpoints. These are also used by the GitHub Actions CI/CD integration.
+
+### `GET /health`
+
+Health check endpoint. Returns the server status.
+
+**Response:**
+```json
+{ "status": "ok" }
+```
+
+---
+
+### `POST /scan`
+
+Full project scan. Sends all project files for AI analysis.
+
+**Request:**
+```json
+{
+  "files": [
+    { "path": "src/server.ts", "content": "...file contents..." },
+    { "path": "src/utils.py", "content": "...file contents..." }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "message": "scan_complete",
+  "report": {
+    "riskScore": 72,
+    "summary": "3 critical issues found related to unsafe file I/O...",
+    "issues": [
+      {
+        "id": "issue-1",
+        "issue": "Path Traversal in File Upload",
+        "file": "src/server.ts",
+        "severity": "critical",
+        "explanation": "User-controlled input is used directly in file path...",
+        "risk": "Attackers can read/write arbitrary files on the server.",
+        "patches": [
+          {
+            "file": "src/server.ts",
+            "start_line": 15,
+            "end_line": 20,
+            "new_code": "...safe replacement code..."
+          }
+        ],
+        "testImpact": ["tests/test_upload.py::test_file_upload"]
+      }
+    ]
+  }
+}
+```
+
+---
+
+### `POST /pr-scan`
+
+PR-scoped scan. Same request/response format as `/scan`, but optimized for scanning only the files changed in a pull request. Used by the GitHub Actions workflows.
 
 ## ⚙️ Usage
 
 ### In VS Code
 
 1. Open any project in VS Code
-2. Open the Command Palette (`Cmd+Shift+P`)
-3. Run **`BlastShield: Scan Project`**
-4. View all issues in the BlastShield sidebar panel
-5. Click **Fix This Issue** or **Fix All Issues**
+2. Add a `.env` file with your `BLASTSHIELD_API_URL` (see [Configuration](#configuration))
+3. Open the Command Palette (`Cmd+Shift+P`)
+4. Run **`BlastShield: Scan Project`**
+5. View all issues in the BlastShield sidebar panel
+6. Click **Fix This Issue** or **Fix All Issues**
 
 ### GitHub Actions (Automatic PR Scanning)
 
@@ -189,11 +266,11 @@ Add `BLASTSHIELD_API_URL` to your repo secrets, and every PR gets scanned automa
 ## 🏗️ Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
+|-------|-----------:|
 | Extension | TypeScript, VS Code API |
 | Backend | Python, Flask, Gunicorn |
 | AI Engine | Groq API (LLM) |
-| Infrastructure | AWS EC2 |
+| Infrastructure | AWS EC2 (or self-host) |
 | CI/CD | GitHub Actions |
 
 ## 🏆 Built For
@@ -206,7 +283,7 @@ Add `BLASTSHIELD_API_URL` to your repo secrets, and every PR gets scanned automa
 
 <div align="center">
 
-**Built with � by [Deepesh Kumar Jha](https://github.com/Deepesh1024)**
+**Built with 💛 by [Deepesh Kumar Jha](https://github.com/Deepesh1024)**
 
 *Ship safely. Ship confidently. Ship with BlastShield.*
 

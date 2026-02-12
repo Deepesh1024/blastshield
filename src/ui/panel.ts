@@ -36,6 +36,7 @@ class BlastShieldPanelProvider implements vscode.WebviewViewProvider {
         view.webview.onDidReceiveMessage(async (msg) => {
             switch (msg.type) {
                 case "scanProject":
+                case "rescan":
                     vscode.commands.executeCommand("blastshield.scan");
                     break;
                 case "fixIssue":
@@ -251,6 +252,27 @@ function buildHtml(report: ScanReport): string {
             transition: width 0.6s ease;
         }
 
+        /* ── Rescan ── */
+        .rescan-btn {
+            width: 100%;
+            padding: 0.55rem;
+            margin-bottom: 0.5rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #fff;
+            background: linear-gradient(135deg, #0078d4, #00b4d8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        .rescan-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .rescan-btn:active { transform: translateY(0); }
+
         /* ── Fix All ── */
         .fix-all-btn {
             width: 100%;
@@ -440,6 +462,11 @@ function buildHtml(report: ScanReport): string {
 
         ${summaryHtml}
 
+        <button class="rescan-btn" onclick="rescan()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Rescan Project
+        </button>
+
         ${fixAllHtml}
 
         ${issueCards}
@@ -455,6 +482,7 @@ function buildHtml(report: ScanReport): string {
             function fixIssue(id)  { vscode.postMessage({ type: "fixIssue",  issueId: id }); }
             function viewDiff(id)  { vscode.postMessage({ type: "viewDiff",  issueId: id }); }
             function fixAll()      { vscode.postMessage({ type: "fixAll" }); }
+            function rescan()      { vscode.postMessage({ type: "rescan" }); }
         </script>
     </body>
     </html>`;

@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { scanProject } from "./scan/scanProject";
 import { registerDiagnostics } from "./ui/diagnostics";
 import { registerCodeLens } from "./ui/codelens";
-import { registerAutoScan } from "./features/autoScan";
+
 import { applyIssuePatches, applyAllPatches } from "./scan/applyPatches";
 import { showIssueDiff } from "./ui/diff";
 import { registerPanel, updateBlastShieldPanel, getLastScanResult } from "./ui/panel";
@@ -15,13 +15,13 @@ export function activate(context: vscode.ExtensionContext) {
 
     registerDiagnostics(context);
     registerCodeLens(context);
-    registerAutoScan(context);
+
     registerPanel(context);
 
     // ── Scan Project ──
     context.subscriptions.push(
         vscode.commands.registerCommand("blastshield.scan", async () => {
-            const result = await scanProject();
+            const result = await scanProject(context.extensionPath);
             if (!result) { return; }
 
             lastScanResult = result;

@@ -7,4 +7,5 @@ blastshield-backend/venv/
 blastshield-backend/.env
 blastshield-backend/api.txt
 api.txt
+.env
 .venv/

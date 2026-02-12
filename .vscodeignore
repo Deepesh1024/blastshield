@@ -5,6 +5,8 @@ node_modules/**
 blastshield-backend/**
 .github/**
 .gitignore
+.env
+.env.example
 .yarnrc
 vsc-extension-quickstart.md
 **/tsconfig.json
