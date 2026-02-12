@@ -1,123 +1,200 @@
-🚀 BlastShield — AI-Powered Code Risk Scanner for VS Code
+<div align="center">
 
-BlastShield automatically scans your entire project for:
+# �️ BlastShield
 
-🛡 Security vulnerabilities
+### AI-Powered Deployment Safety for VS Code
 
-🧨 Dangerous patterns
+**Detect production-breaking failures before they ship.**
 
-⚠ Risky code paths
+[![VS Code](https://img.shields.io/badge/VS%20Code-Extension-007ACC?style=for-the-badge&logo=visual-studio-code&logoColor=white)](https://code.visualstudio.com/)
+[![Python](https://img.shields.io/badge/Backend-Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![AWS](https://img.shields.io/badge/Deployed%20on-AWS-FF9900?style=for-the-badge&logo=amazon-web-services&logoColor=white)](https://aws.amazon.com)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-🧩 Missing validations
+---
 
-🔧 Fixable defects
+*Modern teams don't fear syntax errors — they fear the **invisible runtime failures** that appear after deployment.*
 
-🛠 Auto-generated patches
+</div>
 
-All analysis is performed using the BlastShield Agent powered by advanced LLM reasoning.
+## � The Problem
 
-🔥 Features
-✅ 1. One-Click Project Scan
+Every engineering team has experienced it:
 
-BlastShield: Scan Project
-Scans every source file in your workspace and returns:
+> Code passes all linters. Tests are green. PR is approved. You deploy.  
+> **Then production breaks.**
 
-Issues
+Race conditions. Unsafe file operations. Missing boundary checks. Incorrect async flows. These failures are invisible during development — they only surface under real load.
 
-Risk explanations
+**BlastShield eliminates this guesswork.**
 
-Suggested patches
+## 🚀 What BlastShield Does
 
-A structured report
+BlastShield is an **AI SRE assistant** that lives inside your IDE. It scans your entire codebase and detects deployment-grade risks that traditional tools miss.
 
-Inline diagnostics
+<table>
+<tr>
+<td width="50%">
 
-✅ 2. Auto-Fix Suggestions
+### 🔍 Full-Project AI Scanning
+One scan detects **all** production-impacting issues:
+- Race conditions & concurrency bugs
+- Path traversal & injection risks
+- Unsafe I/O & file operations
+- Missing boundary checks
+- Incorrect async/await logic
+- Silent failures & memory leaks
+- Dependency hazards
 
-BlastShield generates:
+</td>
+<td width="50%">
 
-Multi-line patches
+### 📊 Deployment Impact Report
+A complete risk assessment inside VS Code:
+- All issues with severity ratings
+- Detailed failure explanations
+- Production impact analysis
+- Predicted impacted tests
+- Safe patch suggestions
+- Overall risk score (0–100)
 
-Safe replacements
+</td>
+</tr>
+<tr>
+<td width="50%">
 
-Reviewable diffs
+### ⚡ One-Click Fixes
+Every issue comes with:
+- **Fix This Issue** — apply a targeted patch
+- **View Diff** — preview changes before applying
+- **Fix All** — patch everything at once
+- Full validation & conflict detection
 
-Option to apply fixes automatically
+</td>
+<td width="50%">
 
-✅ 3. Continuous Auto-Scan
+### 🧪 Test Impact Prediction
+Know which tests will break **before running them**:
+- Maps modules to test files
+- Predicts affected test functions
+- Zero test execution overhead
+- Displayed per-issue for clarity
 
-Whenever you edit a file, BlastShield can:
+</td>
+</tr>
+</table>
 
-Rescan automatically
+## 🛠️ Architecture
 
-Highlight new issues
+```
+┌──────────────────────────────────────────────────────────┐
+│                    VS Code Extension                      │
+│  ┌──────────┐  ┌──────────────┐  ┌────────────────────┐  │
+│  │ Scan     │  │ Blast Report │  │ Fix Engine         │  │
+│  │ Command  │  │ Panel (UI)   │  │ (Single + Bulk)    │  │
+│  └────┬─────┘  └──────────────┘  └────────────────────┘  │
+│       │              ▲                     ▲              │
+└───────┼──────────────┼─────────────────────┼──────────────┘
+        │              │                     │
+        ▼              │                     │
+┌───────────────────────────────────────────────────────────┐
+│                  AWS EC2 Backend                          │
+│  ┌────────────────┐  ┌───────────────────────────────┐   │
+│  │  /scan         │  │  /pr-scan                     │   │
+│  │  Full Project  │  │  PR Changed Files Only        │   │
+│  └───────┬────────┘  └──────────────┬────────────────┘   │
+│          └──────────┬───────────────┘                     │
+│                     ▼                                     │
+│            ┌─────────────────┐                            │
+│            │   LLM Engine    │                            │
+│            │   (Groq API)    │                            │
+│            └─────────────────┘                            │
+└───────────────────────────────────────────────────────────┘
+        ▲
+        │
+┌───────┴───────────────────────────────────────────────────┐
+│                  GitHub Actions CI/CD                      │
+│  ┌─────────────────────┐  ┌────────────────────────────┐  │
+│  │ PR Scan             │  │ Main Branch Scan           │  │
+│  │ → Comment on PR     │  │ → Create Issue if Critical │  │
+│  └─────────────────────┘  └────────────────────────────┘  │
+└───────────────────────────────────────────────────────────┘
+```
 
-Remove resolved ones
+## 📦 Installation
 
-✅ 4. CodeLens Hints
+### VS Code Extension
 
-Adds small actionable hints above risky lines:
+```bash
+# Install from .vsix file
+code --install-extension blastshield-0.0.1.vsix
+```
 
-⚠ Review Risk
-🔧 Apply Patch
+### Backend (Self-hosted on AWS)
 
-✅ 5. Right-Side Results Panel
+```bash
+git clone https://github.com/Deepesh1024/blastshield-backend.git
+cd blastshield-backend
 
-All reports open in a dedicated UI panel:
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
 
-Issues list
+export GROQ_API_KEY="your-key-here"
+gunicorn backend:app --bind 0.0.0.0:5001 --workers 2 --timeout 120
+```
 
-Severity colors
+## ⚙️ Usage
 
-Patch preview
+### In VS Code
 
-Apply Fix button
+1. Open any project in VS Code
+2. Open the Command Palette (`Cmd+Shift+P`)
+3. Run **`BlastShield: Scan Project`**
+4. View all issues in the BlastShield sidebar panel
+5. Click **Fix This Issue** or **Fix All Issues**
 
-Fix All
+### GitHub Actions (Automatic PR Scanning)
 
-⚙ How It Works
+Add `BLASTSHIELD_API_URL` to your repo secrets, and every PR gets scanned automatically:
 
-You run Scan Project
+| Event | Action |
+|-------|--------|
+| PR opened/updated | Posts a scan comment on the PR |
+| Push to main | Creates a GitHub Issue if critical issues found |
 
-BlastShield collects workspace files
+## 🎯 Why BlastShield?
 
-Files are sent to the BlastShield backend
+| Traditional Tools | BlastShield |
+|---|---|
+| Find syntax errors | Finds **runtime failures** |
+| Static analysis rules | **AI-powered** production reasoning |
+| One issue at a time | **All issues** in one scan |
+| Manual review needed | **One-click fixes** with patch preview |
+| No test awareness | **Predicts** impacted tests |
+| Local only | **CI/CD integrated** via GitHub Actions |
 
-The backend LLM agent analyzes the code
+## 🏗️ Tech Stack
 
-JSON risk report is returned
+| Layer | Technology |
+|-------|-----------|
+| Extension | TypeScript, VS Code API |
+| Backend | Python, Flask, Gunicorn |
+| AI Engine | Groq API (LLM) |
+| Infrastructure | AWS EC2 |
+| CI/CD | GitHub Actions |
 
-Extension displays diagnostics + patches
+## 🏆 Built For
 
-You apply fixes or review them
+**AWS Nationwide Hackathon** — AI for Learning & Developer Productivity
 
-🌐 Privacy & Security
+> Instead of teaching concepts, BlastShield teaches **real-world failure modes** — the most important skill in software engineering — inside the IDE where developers actually learn.
 
-Only file content needed for analysis is sent to the backend
+---
 
-No files are stored
+<div align="center">
 
-No personal data is collected
+**Built with � by [Deepesh Kumar Jha](https://github.com/Deepesh1024)**
 
-You remain fully in control
+*Ship safely. Ship confidently. Ship with BlastShield.*
 
-📦 Requirements
-
-No external dependencies needed.
-BlastShield backend must be reachable via HTTPS.
-
-🛠 Extension Commands
-Command	Description
-BlastShield: Scan Project	Full project scan
-BlastShield: Apply Patch	Apply selected fix
-BlastShield: Fix All	Apply all patches
-BlastShield: Toggle AutoScan	Enable/disable autoscan
-🤝 Support
-
-For issues or suggestions, open a GitHub issue at:
-
-👉 https://github.com/Deepesh1024/blastshield
-
-📄 License
-
-MIT License.# blastshield
+</div>

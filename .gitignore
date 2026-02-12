@@ -5,4 +5,6 @@ node_modules
 *.vsix
 blastshield-backend/venv/
 blastshield-backend/.env
+blastshield-backend/api.txt
+api.txt
 .venv/
