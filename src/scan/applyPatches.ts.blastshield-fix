@@ -1,0 +1,6 @@
+        const range = new vscode.Range(
+            new vscode.Position(p.start_line - 1, 0),
+            new vscode.Position(p.end_line, 0)
+        );
+        edit.replace(targetUri, range, p.new_code);
+        await vscode.workspace.applyEdit(edit);

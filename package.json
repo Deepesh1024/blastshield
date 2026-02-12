@@ -1,0 +1,77 @@
+{
+  "name": "blastshield",
+  "displayName": "BlastShield",
+  "description": "Local code risk detector with AI-based auto-fixing.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onSave"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "blastshield-sidebar",
+          "title": "BlastShield",
+          "icon": "media/shield.svg"
+        }
+      ]
+    },
+    "views": {
+      "blastshield-sidebar": [
+        {
+          "type": "webview",
+          "id": "blastshieldView",
+          "name": "BlastShield Panel"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "blastshield.scan",
+        "title": "BlastShield: Scan Project"
+      },
+      {
+        "command": "blastshield.fixIssue",
+        "title": "BlastShield: Fix Issue"
+      },
+      {
+        "command": "blastshield.fixAll",
+        "title": "BlastShield: Fix All Issues"
+      },
+      {
+        "command": "blastshield.viewIssueDiff",
+        "title": "BlastShield: View Issue Diff"
+      }
+    ],
+    "codeLensProviders": [
+      {
+        "language": "javascript",
+        "pattern": "**/*"
+      },
+      {
+        "language": "typescript",
+        "pattern": "**/*"
+      },
+      {
+        "language": "python",
+        "pattern": "**/*"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,0 +1,171 @@
+name: BlastShield PR Scan
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  blastshield-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git diff
+
+      - name: Get changed code files
+        id: changed
+        run: |
+          # Get only files changed in this PR
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | \
+            grep -E '\.(py|js|ts|jsx|tsx|java|go|sol|cpp|c|rs)$' | \
+            grep -vE '(node_modules|venv|dist|build|__pycache__|\.git)/' || true)
+
+          if [ -z "$CHANGED" ]; then
+            echo "No code files changed."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # Build JSON payload with only changed files
+          python3 -c "
+          import json, sys
+
+          files = []
+          for line in '''$CHANGED'''.strip().split('\n'):
+              path = line.strip()
+              if not path:
+                  continue
+              try:
+                  with open(path, 'r', errors='ignore') as f:
+                      content = f.read()
+                  files.append({'path': path, 'content': content})
+              except FileNotFoundError:
+                  pass
+
+          with open('payload.json', 'w') as out:
+              json.dump({'files': files}, out)
+
+          print(f'Collected {len(files)} changed files for scanning.')
+          "
+
+      - name: Scan with BlastShield
+        if: steps.changed.outputs.skip != 'true'
+        run: |
+          RESPONSE=$(curl -s -X POST \
+            "${{ secrets.BLASTSHIELD_API_URL }}/pr-scan" \
+            -H "Content-Type: application/json" \
+            -d @payload.json \
+            --max-time 120)
+
+          echo "$RESPONSE" > scan_result.json
+
+          # Check if scan succeeded
+          MESSAGE=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null || echo "error")
+          if [ "$MESSAGE" = "error" ]; then
+            echo "::warning::BlastShield scan encountered an error"
+          fi
+
+      - name: Post PR Comment
+        if: steps.changed.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            let result;
+            try {
+              result = JSON.parse(fs.readFileSync('scan_result.json', 'utf8'));
+            } catch {
+              console.log('No scan results to post.');
+              return;
+            }
+
+            if (result.message !== 'scan_complete') {
+              console.log('Scan did not complete successfully:', result.message);
+              return;
+            }
+
+            const report = result.report;
+            const issues = report.issues || [];
+            const riskScore = report.riskScore || 0;
+            const summary = report.summary || '';
+
+            // Build the PR comment
+            let body = `## 🛡️ BlastShield PR Scan Report\n\n`;
+
+            // Risk score with emoji
+            const riskEmoji = riskScore >= 70 ? '🔴' : riskScore >= 40 ? '🟡' : '🟢';
+            body += `**Risk Score:** ${riskEmoji} **${riskScore}/100**\n`;
+            body += `**Issues Found:** ${issues.length}\n\n`;
+
+            if (summary) {
+              body += `> ${summary}\n\n`;
+            }
+
+            if (issues.length === 0) {
+              body += `✅ **No issues detected.** This PR looks safe to merge.\n`;
+            } else {
+              // Severity counts
+              const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+              for (const issue of issues) {
+                counts[issue.severity] = (counts[issue.severity] || 0) + 1;
+              }
+
+              const badges = [];
+              if (counts.critical > 0) badges.push(`🔴 ${counts.critical} Critical`);
+              if (counts.high > 0) badges.push(`🟠 ${counts.high} High`);
+              if (counts.medium > 0) badges.push(`🔵 ${counts.medium} Medium`);
+              if (counts.low > 0) badges.push(`🟢 ${counts.low} Low`);
+              body += badges.join(' · ') + '\n\n---\n\n';
+
+              // Individual issues
+              for (const issue of issues) {
+                const sevIcon = { critical: '🔴', high: '🟠', medium: '🔵', low: '🟢' }[issue.severity] || '⚪';
+
+                body += `### ${sevIcon} ${issue.severity.toUpperCase()}: ${issue.issue}\n`;
+                body += `📁 \`${issue.file}\`\n\n`;
+                body += `**What's wrong:** ${issue.explanation}\n\n`;
+                body += `**Risk:** ${issue.risk}\n\n`;
+
+                // Suggested fix
+                if (issue.patches && issue.patches.length > 0) {
+                  const patch = issue.patches[0];
+                  body += `<details>\n<summary>💡 Suggested Fix (Lines ${patch.start_line}–${patch.end_line})</summary>\n\n`;
+                  body += `\`\`\`\n${patch.new_code}\n\`\`\`\n`;
+                  body += `</details>\n\n`;
+                }
+
+                // Test impact
+                if (issue.testImpact && issue.testImpact.length > 0) {
+                  body += `**Tests likely impacted:**\n`;
+                  for (const t of issue.testImpact) {
+                    body += `- \`${t}\`\n`;
+                  }
+                  body += '\n';
+                }
+
+                body += '---\n\n';
+              }
+            }
+
+            body += `\n<sub>🛡️ Powered by BlastShield — AI Deployment Safety</sub>`;
+
+            // Post as PR comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+            console.log(`Posted BlastShield report: ${issues.length} issues, risk score ${riskScore}`);
+
+      - name: No code changes
+        if: steps.changed.outputs.skip == 'true'
+        run: echo "No code files changed in this PR. Skipping BlastShield scan."
