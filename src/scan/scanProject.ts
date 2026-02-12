@@ -25,7 +25,7 @@ export async function scanProject(): Promise<ScanReport | undefined> {
         `BlastShield: Scanning ${fileContents.length} files...`
     );
 
-    const response = await fetch("http://127.0.0.1:5001/scan", {
+    const response = await fetch("http://3.84.151.23/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files: fileContents })

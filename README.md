@@ -9,6 +9,7 @@
 [![VS Code](https://img.shields.io/badge/VS%20Code-Extension-007ACC?style=for-the-badge&logo=visual-studio-code&logoColor=white)](https://code.visualstudio.com/)
 [![Python](https://img.shields.io/badge/Backend-Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![AWS](https://img.shields.io/badge/Deployed%20on-AWS-FF9900?style=for-the-badge&logo=amazon-web-services&logoColor=white)](https://aws.amazon.com)
+[![API Status](https://img.shields.io/badge/API-Live-brightgreen?style=for-the-badge&logo=statuspage&logoColor=white)](http://3.84.151.23/health)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
 ---
@@ -130,18 +131,30 @@ Know which tests will break **before running them**:
 code --install-extension blastshield-0.0.1.vsix
 ```
 
-### Backend (Self-hosted on AWS)
+### Backend (Deployed on AWS EC2)
+
+The backend API is already live and deployed:
+
+```
+🟢 API Endpoint:  http://3.84.151.23
+🟢 Health Check:  http://3.84.151.23/health
+🟢 Full Scan:     POST /scan
+🟢 PR Scan:       POST /pr-scan
+```
+
+<details>
+<summary>Self-host your own backend</summary>
 
 ```bash
 git clone https://github.com/Deepesh1024/blastshield-backend.git
 cd blastshield-backend
 
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+pip install flask flask-cors groq gunicorn
 
 export GROQ_API_KEY="your-key-here"
-gunicorn backend:app --bind 0.0.0.0:5001 --workers 2 --timeout 120
+sudo gunicorn backend:app --bind 0.0.0.0:80 --workers 2 --timeout 120
 ```
+</details>
 
 ## ⚙️ Usage
 
