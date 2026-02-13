@@ -3,7 +3,7 @@
   "displayName": "BlastShield",
   "publisher": "blastshield",
   "description": "AI-powered deployment safety — detect production-breaking failures before they ship.",
-  "version": "0.1.0",
+  "version": "0.0.7",
   "engines": {
     "vscode": "^1.80.0"
   },
