@@ -1,9 +1,12 @@
 import * as vscode from "vscode";
 import { ScanReport, BlastIssue, RiskBreakdown } from "../types/PatchResult";
+import { ScanSnapshot, ScanDelta } from "../scan/scanHistory";
 
 let blastView: vscode.WebviewView | null = null;
 let lastScan: ScanReport | null = null;
 let lastScanId: string | undefined;
+let lastHistory: ScanSnapshot[] = [];
+let lastDelta: ScanDelta | null = null;
 
 export function registerPanel(context: vscode.ExtensionContext) {
     context.subscriptions.push(
@@ -15,11 +18,18 @@ export function registerPanel(context: vscode.ExtensionContext) {
     );
 }
 
-export function updateBlastShieldPanel(result: ScanReport, scanId?: string) {
+export function updateBlastShieldPanel(
+    result: ScanReport,
+    scanId?: string,
+    history?: ScanSnapshot[],
+    delta?: ScanDelta | null
+) {
     lastScan = result;
     lastScanId = scanId;
+    lastHistory = history ?? [];
+    lastDelta = delta ?? null;
     if (!blastView) { return; }
-    blastView.webview.html = buildHtml(result, scanId);
+    blastView.webview.html = buildHtml(result, scanId, lastHistory, lastDelta);
 }
 
 export function getLastScanResult(): ScanReport | null {
@@ -102,9 +112,7 @@ function buildEmptyHtml(): string {
             box-shadow: 0 4px 16px rgba(0, 120, 212, 0.4);
             background: linear-gradient(135deg, #006abc, #009ec3);
         }
-        .scan-btn:active {
-            transform: translateY(0);
-        }
+        .scan-btn:active { transform: translateY(0); }
         .subtitle {
             font-size: 0.82rem;
             opacity: 0.55;
@@ -126,51 +134,50 @@ function buildEmptyHtml(): string {
         <p class="subtitle">Detects production-breaking failures<br/>before they ship.</p>
         <script>
             const vscode = acquireVsCodeApi();
-            function scanRepo() {
-                vscode.postMessage({ type: 'scanProject' });
-            }
+            function scanRepo() { vscode.postMessage({ type: 'scanProject' }); }
         </script>
     </body>
     </html>`;
 }
 
-function buildHtml(report: ScanReport, scanId?: string): string {
+function buildHtml(
+    report: ScanReport,
+    scanId?: string,
+    history: ScanSnapshot[] = [],
+    delta: ScanDelta | null = null
+): string {
     const issues = report.issues ?? [];
     const riskScore = report.riskScore ?? 0;
 
-    // Severity counts
     const counts = { critical: 0, high: 0, medium: 0, low: 0 };
     for (const issue of issues) {
         const sev = issue.severity ?? "low";
         if (sev in counts) { counts[sev as keyof typeof counts]++; }
     }
 
-    // Deterministic badge
     const detBadge = report.deterministic_only !== undefined
         ? (report.deterministic_only
             ? `<span class="det-badge deterministic">🔒 Deterministic</span>`
             : `<span class="det-badge ai-assisted">🤖 AI-Assisted</span>`)
         : "";
 
-    // Summary section
     const summaryHtml = buildSummaryHtml(issues.length, counts, riskScore, report.summary);
 
-    // Risk breakdown
+    // ── Graphs Section ──
+    const graphsHtml = buildGraphsSection(riskScore, counts, report, history, delta);
+
     const riskBreakdownHtml = report.risk_breakdown
         ? buildRiskBreakdownHtml(report.risk_breakdown)
         : "";
 
-    // Issue cards
     const issueCards = issues.map((issue, i) => buildIssueCard(issue, i)).join("");
 
-    // Fix All button (only if > 1 issue)
     const fixAllHtml = issues.length > 1 ? `
         <button class="fix-all-btn" onclick="fixAll()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             Fix All ${issues.length} Issues
         </button>` : "";
 
-    // Audit footer
     const auditHtml = buildAuditFooterHtml(report, scanId);
 
     return /* html */ `
@@ -211,7 +218,7 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             font-weight: 600;
         }
 
-        /* ── Deterministic Badge ── */
+        /* ── Badges ── */
         .det-badge {
             font-size: 0.7rem;
             font-weight: 600;
@@ -271,10 +278,7 @@ function buildHtml(report: ScanReport, scanId?: string): string {
         .sev-chip.medium   { background: #283593; }
         .sev-chip.low      { background: #2e7d32; }
 
-        /* Risk score bar */
-        .risk-bar-container {
-            margin-top: 0.3rem;
-        }
+        .risk-bar-container { margin-top: 0.3rem; }
         .risk-label {
             font-size: 0.78rem;
             font-weight: 600;
@@ -294,6 +298,134 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             transition: width 0.6s ease;
         }
 
+        /* ── Graphs Section ── */
+        .graphs-section {
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            margin-bottom: 0.8rem;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .graphs-section > summary {
+            padding: 0.6rem 0.7rem;
+            font-weight: 600;
+            font-size: 0.82rem;
+            cursor: pointer;
+            user-select: none;
+            opacity: 0.9;
+        }
+        .graphs-body {
+            padding: 0 0.7rem 0.7rem;
+        }
+        .graph-row {
+            display: flex;
+            gap: 0.6rem;
+            margin-bottom: 0.6rem;
+            flex-wrap: wrap;
+        }
+        .graph-card {
+            flex: 1;
+            min-width: 100px;
+            background: var(--vscode-sideBar-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            padding: 0.5rem;
+            text-align: center;
+        }
+        .graph-card-title {
+            font-size: 0.68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.6;
+            margin-bottom: 0.3rem;
+        }
+        .graph-card svg { display: block; margin: 0 auto; }
+
+        /* Stats cards */
+        .stats-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.4rem;
+            margin-bottom: 0.5rem;
+        }
+        .stat-card {
+            background: var(--vscode-sideBar-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            padding: 0.5rem;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+        .stat-label {
+            font-size: 0.65rem;
+            opacity: 0.6;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-top: 2px;
+        }
+        .stat-delta {
+            font-size: 0.65rem;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+        .delta-up { color: #ef5350; }
+        .delta-down { color: #66bb6a; }
+        .delta-same { color: #888; }
+
+        /* Trend */
+        .trend-section {
+            margin-top: 0.5rem;
+        }
+        .trend-title {
+            font-size: 0.72rem;
+            font-weight: 600;
+            opacity: 0.7;
+            margin-bottom: 0.3rem;
+        }
+
+        /* Bar chart */
+        .bar-chart { margin-top: 0.3rem; }
+        .bar-row {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            margin-bottom: 3px;
+            font-size: 0.7rem;
+        }
+        .bar-rule {
+            width: 80px;
+            text-align: right;
+            font-family: var(--vscode-editor-font-family), monospace;
+            font-size: 0.65rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            opacity: 0.8;
+        }
+        .bar-track {
+            flex: 1;
+            height: 12px;
+            background: var(--vscode-panel-border);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+        .bar-score {
+            width: 30px;
+            text-align: right;
+            font-weight: 600;
+            font-size: 0.68rem;
+        }
+
         /* ── Risk Breakdown ── */
         .risk-breakdown {
             background: var(--vscode-editor-background);
@@ -311,9 +443,7 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             user-select: none;
             opacity: 0.9;
         }
-        .risk-breakdown-body {
-            padding: 0 0.7rem 0.7rem;
-        }
+        .risk-breakdown-body { padding: 0 0.7rem 0.7rem; }
         .formula-text {
             font-size: 0.76rem;
             font-family: var(--vscode-editor-font-family), monospace;
@@ -400,7 +530,6 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             from { opacity: 0; transform: translateY(6px); }
             to   { opacity: 1; transform: translateY(0); }
         }
-
         .card-header {
             padding: 0.55rem 0.7rem;
             display: flex;
@@ -438,10 +567,8 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             overflow: hidden;
             text-overflow: ellipsis;
         }
-
         .card-body { padding: 0.7rem; }
 
-        /* ── Meta rows ── */
         .meta-row {
             display: flex;
             gap: 0.5rem;
@@ -459,7 +586,6 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             white-space: nowrap;
         }
 
-        /* ── Sections ── */
         .section {
             margin-top: 0.5rem;
             border-top: 1px solid var(--vscode-panel-border);
@@ -499,7 +625,6 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             line-height: 1.5;
         }
 
-        /* ── Evidence ── */
         .evidence-list {
             list-style: none;
             padding: 0;
@@ -520,7 +645,6 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             opacity: 0.7;
         }
 
-        /* ── Test Impact ── */
         .test-impact {
             margin-top: 0.4rem;
             padding-top: 0.4rem;
@@ -543,7 +667,6 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             color: #66bb6a;
         }
 
-        /* ── Buttons ── */
         .btn-row {
             display: flex;
             gap: 0.4rem;
@@ -569,7 +692,6 @@ function buildHtml(report: ScanReport, scanId?: string): string {
         .btn-apply  { background: linear-gradient(135deg, #2e7d32, #43a047); }
         .btn-review { background: linear-gradient(135deg, #0277bd, #039be5); }
 
-        /* ── Audit Footer ── */
         .audit-footer {
             background: var(--vscode-editor-background);
             border: 1px solid var(--vscode-panel-border);
@@ -586,9 +708,7 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             display: flex;
             gap: 0.3rem;
         }
-        .audit-footer .audit-label {
-            font-weight: 600;
-        }
+        .audit-footer .audit-label { font-weight: 600; }
         .audit-footer .audit-full {
             grid-column: 1 / -1;
             font-family: var(--vscode-editor-font-family), monospace;
@@ -597,7 +717,6 @@ function buildHtml(report: ScanReport, scanId?: string): string {
             word-break: break-all;
         }
 
-        /* ── Scrollbar ── */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background); border-radius: 3px; }
     </style>
@@ -613,6 +732,8 @@ function buildHtml(report: ScanReport, scanId?: string): string {
         </div>
 
         ${summaryHtml}
+
+        ${graphsHtml}
 
         ${riskBreakdownHtml}
 
@@ -643,6 +764,8 @@ function buildHtml(report: ScanReport, scanId?: string): string {
     </body>
     </html>`;
 }
+
+// ── Summary ─────────────────────────────────────────────────
 
 function buildSummaryHtml(
     total: number,
@@ -682,6 +805,299 @@ function buildSummaryHtml(
     </div>`;
 }
 
+// ── Graphs Section ──────────────────────────────────────────
+
+function buildGraphsSection(
+    riskScore: number,
+    counts: { critical: number; high: number; medium: number; low: number },
+    report: ScanReport,
+    history: ScanSnapshot[],
+    delta: ScanDelta | null
+): string {
+    const gaugeHtml = buildRiskGaugeSvg(riskScore, delta);
+    const donutHtml = buildSeverityDonutSvg(counts, delta);
+    const barChartHtml = buildViolationBarChart(report);
+    const statsHtml = buildStatsCards(report, delta);
+    const trendHtml = history.length > 1 ? buildTrendLine(history) : "";
+
+    return `
+    <details class="graphs-section" open>
+        <summary>📈 Scan Analytics</summary>
+        <div class="graphs-body">
+            ${statsHtml}
+            <div class="graph-row">
+                <div class="graph-card">
+                    <div class="graph-card-title">Risk Score</div>
+                    ${gaugeHtml}
+                </div>
+                <div class="graph-card">
+                    <div class="graph-card-title">Severity</div>
+                    ${donutHtml}
+                </div>
+            </div>
+            ${barChartHtml}
+            ${trendHtml}
+        </div>
+    </details>`;
+}
+
+// ── Risk Gauge (semicircular SVG) ───────────────────────────
+
+function buildRiskGaugeSvg(score: number, delta: ScanDelta | null): string {
+    const cx = 60, cy = 55, r = 40;
+    const startAngle = Math.PI;
+    const endAngle = 0;
+    const scoreAngle = Math.PI - (score / 100) * Math.PI;
+
+    const bgArcD = describeArc(cx, cy, r, startAngle, endAngle);
+    const scoreArcD = describeArc(cx, cy, r, startAngle, scoreAngle);
+
+    const color = score >= 70 ? "#e53935" : score >= 40 ? "#fb8c00" : "#66bb6a";
+
+    const circumference = Math.PI * r;
+    const scoreLen = (score / 100) * circumference;
+    const bgLen = circumference;
+
+    const deltaHtml = delta
+        ? `<text x="${cx}" y="${cy + 18}" text-anchor="middle" font-size="8" font-weight="600" fill="${delta.riskScore > 0 ? '#ef5350' : delta.riskScore < 0 ? '#66bb6a' : '#888'}">${delta.riskScore > 0 ? '▲' : delta.riskScore < 0 ? '▼' : '—'} ${Math.abs(delta.riskScore)}</text>`
+        : "";
+
+    return `
+    <svg width="120" height="75" viewBox="0 0 120 75">
+        <path d="${bgArcD}" fill="none" stroke="rgba(128,128,128,0.2)" stroke-width="8" stroke-linecap="round"/>
+        <path d="${scoreArcD}" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round">
+            <animate attributeName="stroke-dasharray" from="0 ${bgLen}" to="${scoreLen} ${bgLen}" dur="0.8s" fill="freeze"/>
+        </path>
+        <text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="18" font-weight="700" fill="${color}">${score}</text>
+        ${deltaHtml}
+    </svg>`;
+}
+
+function describeArc(cx: number, cy: number, r: number, startAngle: number, endAngle: number): string {
+    const x1 = cx + r * Math.cos(startAngle);
+    const y1 = cy - r * Math.sin(startAngle);
+    const x2 = cx + r * Math.cos(endAngle);
+    const y2 = cy - r * Math.sin(endAngle);
+    const largeArc = Math.abs(startAngle - endAngle) > Math.PI ? 1 : 0;
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
+}
+
+// ── Severity Donut (SVG) ────────────────────────────────────
+
+function buildSeverityDonutSvg(
+    counts: { critical: number; high: number; medium: number; low: number },
+    delta: ScanDelta | null
+): string {
+    const cx = 50, cy = 42, r = 30;
+    const total = counts.critical + counts.high + counts.medium + counts.low;
+
+    if (total === 0) {
+        return `
+        <svg width="100" height="90" viewBox="0 0 100 90">
+            <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(128,128,128,0.2)" stroke-width="10"/>
+            <text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="11" font-weight="600" fill="#66bb6a">✓</text>
+            <text x="${cx}" y="${cy + 16}" text-anchor="middle" font-size="7" opacity="0.6">Clean</text>
+        </svg>`;
+    }
+
+    const segments = [
+        { count: counts.critical, color: "#e53935", label: "C" },
+        { count: counts.high, color: "#fb8c00", label: "H" },
+        { count: counts.medium, color: "#5c6bc0", label: "M" },
+        { count: counts.low, color: "#66bb6a", label: "L" }
+    ].filter(s => s.count > 0);
+
+    const circumference = 2 * Math.PI * r;
+    let offset = 0;
+    const paths = segments.map(seg => {
+        const pct = seg.count / total;
+        const len = pct * circumference;
+        const gap = circumference - len;
+        const html = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
+            stroke="${seg.color}" stroke-width="10"
+            stroke-dasharray="${len} ${gap}"
+            stroke-dashoffset="${-offset}"
+            transform="rotate(-90 ${cx} ${cy})"/>`;
+        offset += len;
+        return html;
+    });
+
+    // Legend below
+    const legend = segments.map((seg, i) => {
+        const lx = 8 + i * 25;
+        return `<rect x="${lx}" y="78" width="6" height="6" rx="1" fill="${seg.color}"/>
+                <text x="${lx + 8}" y="84" font-size="7" opacity="0.8">${seg.count}${seg.label}</text>`;
+    }).join("");
+
+    return `
+    <svg width="100" height="90" viewBox="0 0 100 90">
+        ${paths.join("")}
+        <text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="14" font-weight="700">${total}</text>
+        ${legend}
+    </svg>`;
+}
+
+// ── Violation Bar Chart ─────────────────────────────────────
+
+function buildViolationBarChart(report: ScanReport): string {
+    const contributions = report.risk_breakdown?.violation_contributions;
+    if (!contributions || contributions.length === 0) { return ""; }
+
+    const maxScore = Math.max(...contributions.map(vc => vc.weighted_score), 1);
+    const sevColorMap: Record<string, string> = {
+        critical: "#e53935", high: "#fb8c00", medium: "#5c6bc0", low: "#66bb6a"
+    };
+
+    const bars = contributions.map(vc => {
+        const pct = (vc.weighted_score / maxScore) * 100;
+        const color = sevColorMap[vc.severity] ?? "#888";
+        const rule = escapeHtml(vc.rule_id.length > 14 ? vc.rule_id.slice(0, 12) + "…" : vc.rule_id);
+        return `
+        <div class="bar-row">
+            <span class="bar-rule" title="${escapeHtml(vc.rule_id)}">${rule}</span>
+            <div class="bar-track">
+                <div class="bar-fill" style="width:${pct}%;background:${color};"></div>
+            </div>
+            <span class="bar-score">${vc.weighted_score.toFixed(1)}</span>
+        </div>`;
+    }).join("");
+
+    return `
+    <div style="margin-top:0.4rem;">
+        <div class="graph-card-title">Violation Contributions</div>
+        <div class="bar-chart">${bars}</div>
+    </div>`;
+}
+
+// ── Stats Cards with Delta ──────────────────────────────────
+
+function buildStatsCards(report: ScanReport, delta: ScanDelta | null): string {
+    const audit = report.audit;
+
+    const formatDelta = (val: number, invert: boolean = false): string => {
+        if (val === 0) { return `<span class="stat-delta delta-same">— no change</span>`; }
+        // For risk/issues: positive = bad. For resolved: invert
+        const isGood = invert ? val > 0 : val < 0;
+        const cls = isGood ? "delta-down" : "delta-up";
+        const arrow = val > 0 ? "▲" : "▼";
+        return `<span class="stat-delta ${cls}">${arrow} ${Math.abs(val)}</span>`;
+    };
+
+    const issuesDelta = delta ? formatDelta(delta.issueCount) : "";
+    const riskDelta = delta ? formatDelta(delta.riskScore) : "";
+
+    const cards = [
+        `<div class="stat-card">
+            <div class="stat-value">${(report.issues ?? []).length}</div>
+            <div class="stat-label">Issues</div>
+            ${issuesDelta}
+        </div>`,
+        `<div class="stat-card">
+            <div class="stat-value" style="color:${report.riskScore >= 70 ? '#e53935' : report.riskScore >= 40 ? '#fb8c00' : '#66bb6a'}">${report.riskScore ?? 0}</div>
+            <div class="stat-label">Risk Score</div>
+            ${riskDelta}
+        </div>`
+    ];
+
+    if (audit) {
+        cards.push(
+            `<div class="stat-card">
+                <div class="stat-value">${audit.files_scanned}</div>
+                <div class="stat-label">Files Scanned</div>
+            </div>`,
+            `<div class="stat-card">
+                <div class="stat-value">${audit.duration_ms}ms</div>
+                <div class="stat-label">Duration</div>
+            </div>`
+        );
+    }
+
+    // Show resolved/new rules from delta
+    let rulesHtml = "";
+    if (delta) {
+        if (delta.resolvedRules.length > 0) {
+            rulesHtml += `<div style="font-size:0.72rem;margin-top:0.3rem;color:#66bb6a;">✅ Resolved: ${delta.resolvedRules.map(r => `<code>${escapeHtml(r)}</code>`).join(", ")}</div>`;
+        }
+        if (delta.newRules.length > 0) {
+            rulesHtml += `<div style="font-size:0.72rem;margin-top:0.2rem;color:#ef5350;">🆕 New: ${delta.newRules.map(r => `<code>${escapeHtml(r)}</code>`).join(", ")}</div>`;
+        }
+    }
+
+    return `
+    <div class="stats-row">${cards.join("")}</div>
+    ${rulesHtml}`;
+}
+
+// ── Trend Line (SVG sparkline) ──────────────────────────────
+
+function buildTrendLine(history: ScanSnapshot[]): string {
+    if (history.length < 2) { return ""; }
+
+    const w = 220, h = 50;
+    const padX = 10, padY = 5;
+    const plotW = w - 2 * padX;
+    const plotH = h - 2 * padY;
+
+    const scores = history.map(s => s.riskScore);
+    const maxScore = Math.max(...scores, 100);
+    const minScore = Math.min(...scores, 0);
+    const range = maxScore - minScore || 1;
+
+    const points = scores.map((score, i) => {
+        const x = padX + (i / (scores.length - 1)) * plotW;
+        const y = padY + plotH - ((score - minScore) / range) * plotH;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+
+    const polyline = points.join(" ");
+    const lastPt = points[points.length - 1].split(",");
+    const lastScore = scores[scores.length - 1];
+    const lastColor = lastScore >= 70 ? "#e53935" : lastScore >= 40 ? "#fb8c00" : "#66bb6a";
+
+    // Gradient fill under the line
+    const fillPoints = `${padX},${padY + plotH} ${polyline} ${padX + plotW},${padY + plotH}`;
+
+    // Scan labels
+    const labels = history.map((s, i) => {
+        const x = padX + (i / (scores.length - 1)) * plotW;
+        return `<text x="${x.toFixed(1)}" y="${h}" text-anchor="middle" font-size="5" opacity="0.4">${i + 1}</text>`;
+    }).join("");
+
+    return `
+    <div class="trend-section">
+        <div class="graph-card-title">Risk Trend (${history.length} scans)</div>
+        <svg width="${w}" height="${h + 8}" viewBox="0 0 ${w} ${h + 8}" style="width:100%;height:auto;">
+            <defs>
+                <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="${lastColor}" stop-opacity="0.3"/>
+                    <stop offset="100%" stop-color="${lastColor}" stop-opacity="0.02"/>
+                </linearGradient>
+            </defs>
+            <!-- grid lines -->
+            <line x1="${padX}" y1="${padY}" x2="${padX + plotW}" y2="${padY}" stroke="rgba(128,128,128,0.1)" stroke-width="0.5"/>
+            <line x1="${padX}" y1="${padY + plotH / 2}" x2="${padX + plotW}" y2="${padY + plotH / 2}" stroke="rgba(128,128,128,0.1)" stroke-width="0.5"/>
+            <line x1="${padX}" y1="${padY + plotH}" x2="${padX + plotW}" y2="${padY + plotH}" stroke="rgba(128,128,128,0.1)" stroke-width="0.5"/>
+            <!-- fill -->
+            <polygon points="${fillPoints}" fill="url(#trendGrad)"/>
+            <!-- line -->
+            <polyline points="${polyline}" fill="none" stroke="${lastColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <animate attributeName="stroke-dasharray" from="0 1000" to="1000 0" dur="1s" fill="freeze"/>
+            </polyline>
+            <!-- dots -->
+            ${points.map((pt, i) => {
+        const [x, y] = pt.split(",");
+        const c = scores[i] >= 70 ? "#e53935" : scores[i] >= 40 ? "#fb8c00" : "#66bb6a";
+        return `<circle cx="${x}" cy="${y}" r="3" fill="${c}" stroke="var(--vscode-editor-background)" stroke-width="1.5"/>`;
+    }).join("")}
+            <!-- last score label -->
+            <text x="${lastPt[0]}" y="${parseFloat(lastPt[1]) - 6}" text-anchor="middle" font-size="8" font-weight="700" fill="${lastColor}">${lastScore}</text>
+            ${labels}
+        </svg>
+    </div>`;
+}
+
+// ── Risk Breakdown ──────────────────────────────────────────
+
 function buildRiskBreakdownHtml(rb: RiskBreakdown): string {
     const rows = (rb.violation_contributions ?? []).map(vc => {
         const blastFactor = vc.blast_radius_factor !== undefined
@@ -716,6 +1132,8 @@ function buildRiskBreakdownHtml(rb: RiskBreakdown): string {
     </details>`;
 }
 
+// ── Issue Cards ─────────────────────────────────────────────
+
 function buildIssueCard(issue: BlastIssue, index: number): string {
     const sev = issue.severity ?? "low";
     const sevLabel = sev.toUpperCase();
@@ -723,19 +1141,16 @@ function buildIssueCard(issue: BlastIssue, index: number): string {
     const patchPreview = (issue.patches ?? []).map(p => escapeHtml(p.new_code)).join("\n\n");
     const fileDisplay = issue.file ? escapeHtml(shortenPath(issue.file)) : "—";
 
-    // Show exact line if available, else fall back to patch range
     const lineDisplay = issue.line !== undefined
         ? `Line ${issue.line}`
         : (issue.patches.length > 0
             ? `${issue.patches[0].start_line} → ${issue.patches[0].end_line}`
             : "—");
 
-    // Rule ID tag
     const ruleTag = issue.rule_id
         ? `<span class="rule-tag">${escapeHtml(issue.rule_id)}</span>`
         : "";
 
-    // Evidence section
     const evidenceHtml = issue.evidence && issue.evidence.length > 0
         ? `<details class="section">
                 <summary>Evidence (${issue.evidence.length})</summary>
@@ -802,6 +1217,8 @@ function buildIssueCard(issue: BlastIssue, index: number): string {
         </div>
     `;
 }
+
+// ── Audit Footer ────────────────────────────────────────────
 
 function buildAuditFooterHtml(report: ScanReport, scanId?: string): string {
     const audit = report.audit;

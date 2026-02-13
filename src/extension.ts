@@ -7,11 +7,15 @@ import { applyIssuePatches, applyAllPatches } from "./scan/applyPatches";
 import { showIssueDiff } from "./ui/diff";
 import { registerPanel, updateBlastShieldPanel, getLastScanResult } from "./ui/panel";
 import { ScanReport } from "./types/PatchResult";
+import { initScanHistory, recordScan, getScanHistory } from "./scan/scanHistory";
 
 let lastScanResult: ScanReport | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log("BlastShield: activated");
+
+    // Initialize scan history cache from persisted state
+    initScanHistory(context);
 
     registerDiagnostics(context);
     registerCodeLens(context);
@@ -25,7 +29,13 @@ export function activate(context: vscode.ExtensionContext) {
             if (!result) { return; }
 
             lastScanResult = result;
-            updateBlastShieldPanel(result, getLastScanId());
+
+            // Record scan in history and compute delta
+            const scanId = getLastScanId();
+            const delta = recordScan(result, scanId);
+            const history = getScanHistory();
+
+            updateBlastShieldPanel(result, scanId, history, delta);
         })
     );
 
