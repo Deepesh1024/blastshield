@@ -15,18 +15,37 @@ class BlastShieldCodeLensProvider implements vscode.CodeLensProvider {
         const lenses: vscode.CodeLens[] = [];
 
         for (const issue of this.report.issues) {
-            for (const p of issue.patches) {
-                if (document.uri.fsPath === p.file) {
+            // ── Prefer issue.line for precise CodeLens positioning (v2.0.0+) ──
+            if (issue.line !== undefined && issue.file) {
+                if (document.uri.fsPath === issue.file) {
+                    const line = Math.max(0, issue.line - 1);
                     const range = new vscode.Range(
-                        new vscode.Position(p.start_line - 1, 0),
-                        new vscode.Position(p.start_line - 1, 0)
+                        new vscode.Position(line, 0),
+                        new vscode.Position(line, 0)
                     );
+                    const ruleTag = issue.rule_id ? ` (${issue.rule_id})` : "";
                     const lens = new vscode.CodeLens(range, {
-                        title: `⚡ BlastShield: Fix "${issue.issue}"`,
+                        title: `⚡ BlastShield: Fix "${issue.issue}"${ruleTag}`,
                         command: "blastshield.fixIssue",
                         arguments: [issue.id]
                     });
                     lenses.push(lens);
+                }
+            } else {
+                // ── Fallback: use patch locations (original behavior) ──
+                for (const p of issue.patches) {
+                    if (document.uri.fsPath === p.file) {
+                        const range = new vscode.Range(
+                            new vscode.Position(p.start_line - 1, 0),
+                            new vscode.Position(p.start_line - 1, 0)
+                        );
+                        const lens = new vscode.CodeLens(range, {
+                            title: `⚡ BlastShield: Fix "${issue.issue}"`,
+                            command: "blastshield.fixIssue",
+                            arguments: [issue.id]
+                        });
+                        lenses.push(lens);
+                    }
                 }
             }
         }

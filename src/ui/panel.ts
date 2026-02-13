@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
-import { ScanReport, BlastIssue } from "../types/PatchResult";
+import { ScanReport, BlastIssue, RiskBreakdown } from "../types/PatchResult";
 
 let blastView: vscode.WebviewView | null = null;
 let lastScan: ScanReport | null = null;
+let lastScanId: string | undefined;
 
 export function registerPanel(context: vscode.ExtensionContext) {
     context.subscriptions.push(
@@ -14,10 +15,11 @@ export function registerPanel(context: vscode.ExtensionContext) {
     );
 }
 
-export function updateBlastShieldPanel(result: ScanReport) {
+export function updateBlastShieldPanel(result: ScanReport, scanId?: string) {
     lastScan = result;
+    lastScanId = scanId;
     if (!blastView) { return; }
-    blastView.webview.html = buildHtml(result);
+    blastView.webview.html = buildHtml(result, scanId);
 }
 
 export function getLastScanResult(): ScanReport | null {
@@ -132,7 +134,7 @@ function buildEmptyHtml(): string {
     </html>`;
 }
 
-function buildHtml(report: ScanReport): string {
+function buildHtml(report: ScanReport, scanId?: string): string {
     const issues = report.issues ?? [];
     const riskScore = report.riskScore ?? 0;
 
@@ -143,8 +145,20 @@ function buildHtml(report: ScanReport): string {
         if (sev in counts) { counts[sev as keyof typeof counts]++; }
     }
 
+    // Deterministic badge
+    const detBadge = report.deterministic_only !== undefined
+        ? (report.deterministic_only
+            ? `<span class="det-badge deterministic">🔒 Deterministic</span>`
+            : `<span class="det-badge ai-assisted">🤖 AI-Assisted</span>`)
+        : "";
+
     // Summary section
-    const summaryHtml = buildSummaryHtml(issues.length, counts, riskScore);
+    const summaryHtml = buildSummaryHtml(issues.length, counts, riskScore, report.summary);
+
+    // Risk breakdown
+    const riskBreakdownHtml = report.risk_breakdown
+        ? buildRiskBreakdownHtml(report.risk_breakdown)
+        : "";
 
     // Issue cards
     const issueCards = issues.map((issue, i) => buildIssueCard(issue, i)).join("");
@@ -155,6 +169,9 @@ function buildHtml(report: ScanReport): string {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             Fix All ${issues.length} Issues
         </button>` : "";
+
+    // Audit footer
+    const auditHtml = buildAuditFooterHtml(report, scanId);
 
     return /* html */ `
     <!DOCTYPE html>
@@ -180,6 +197,7 @@ function buildHtml(report: ScanReport): string {
             padding: 0.5rem 0.2rem 0.7rem;
             border-bottom: 1px solid var(--vscode-panel-border);
             margin-bottom: 0.7rem;
+            flex-wrap: wrap;
         }
         .panel-header svg { opacity: 0.8; }
         .panel-header h2 { font-size: 1rem; font-weight: 600; }
@@ -191,6 +209,23 @@ function buildHtml(report: ScanReport): string {
             border-radius: 10px;
             font-size: 0.75rem;
             font-weight: 600;
+        }
+
+        /* ── Deterministic Badge ── */
+        .det-badge {
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            letter-spacing: 0.3px;
+        }
+        .det-badge.deterministic {
+            background: linear-gradient(135deg, #1b5e20, #388e3c);
+            color: #c8e6c9;
+        }
+        .det-badge.ai-assisted {
+            background: linear-gradient(135deg, #4a148c, #7b1fa2);
+            color: #e1bee7;
         }
 
         /* ── Summary ── */
@@ -207,6 +242,13 @@ function buildHtml(report: ScanReport): string {
             font-weight: 600;
             margin-bottom: 0.5rem;
             opacity: 0.85;
+        }
+        .summary-text {
+            font-size: 0.8rem;
+            line-height: 1.5;
+            margin-bottom: 0.5rem;
+            opacity: 0.9;
+            padding: 0.3rem 0;
         }
         .severity-chips {
             display: flex;
@@ -251,6 +293,56 @@ function buildHtml(report: ScanReport): string {
             border-radius: 3px;
             transition: width 0.6s ease;
         }
+
+        /* ── Risk Breakdown ── */
+        .risk-breakdown {
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            margin-bottom: 0.8rem;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .risk-breakdown summary {
+            padding: 0.6rem 0.7rem;
+            font-weight: 600;
+            font-size: 0.82rem;
+            cursor: pointer;
+            user-select: none;
+            opacity: 0.9;
+        }
+        .risk-breakdown-body {
+            padding: 0 0.7rem 0.7rem;
+        }
+        .formula-text {
+            font-size: 0.76rem;
+            font-family: var(--vscode-editor-font-family), monospace;
+            background: var(--vscode-textCodeBlock-background);
+            padding: 0.4rem;
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+            overflow-x: auto;
+        }
+        .contrib-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.76rem;
+        }
+        .contrib-table th {
+            text-align: left;
+            padding: 4px 6px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            font-weight: 600;
+            opacity: 0.7;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .contrib-table td {
+            padding: 4px 6px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+        }
+        .contrib-table tr:last-child td { border-bottom: none; }
 
         /* ── Rescan ── */
         .rescan-btn {
@@ -331,6 +423,16 @@ function buildHtml(report: ScanReport): string {
             letter-spacing: 0.5px;
             flex-shrink: 0;
         }
+        .rule-tag {
+            font-size: 0.62rem;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: rgba(255,255,255,0.15);
+            font-family: var(--vscode-editor-font-family), monospace;
+            letter-spacing: 0.3px;
+            flex-shrink: 0;
+            border: 1px solid rgba(255,255,255,0.25);
+        }
         .issue-title {
             white-space: nowrap;
             overflow: hidden;
@@ -397,6 +499,27 @@ function buildHtml(report: ScanReport): string {
             line-height: 1.5;
         }
 
+        /* ── Evidence ── */
+        .evidence-list {
+            list-style: none;
+            padding: 0;
+            margin: 0.3rem 0 0;
+        }
+        .evidence-item {
+            font-size: 0.78rem;
+            padding: 3px 0;
+            opacity: 0.9;
+            line-height: 1.4;
+            display: flex;
+            gap: 0.4rem;
+            align-items: flex-start;
+        }
+        .evidence-item::before {
+            content: "⚙";
+            flex-shrink: 0;
+            opacity: 0.7;
+        }
+
         /* ── Test Impact ── */
         .test-impact {
             margin-top: 0.4rem;
@@ -446,6 +569,34 @@ function buildHtml(report: ScanReport): string {
         .btn-apply  { background: linear-gradient(135deg, #2e7d32, #43a047); }
         .btn-review { background: linear-gradient(135deg, #0277bd, #039be5); }
 
+        /* ── Audit Footer ── */
+        .audit-footer {
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            padding: 0.6rem 0.7rem;
+            margin-top: 0.8rem;
+            font-size: 0.72rem;
+            opacity: 0.75;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.2rem 0.8rem;
+        }
+        .audit-footer .audit-item {
+            display: flex;
+            gap: 0.3rem;
+        }
+        .audit-footer .audit-label {
+            font-weight: 600;
+        }
+        .audit-footer .audit-full {
+            grid-column: 1 / -1;
+            font-family: var(--vscode-editor-font-family), monospace;
+            font-size: 0.68rem;
+            opacity: 0.6;
+            word-break: break-all;
+        }
+
         /* ── Scrollbar ── */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background); border-radius: 3px; }
@@ -457,10 +608,13 @@ function buildHtml(report: ScanReport): string {
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             </svg>
             <h2>BlastShield</h2>
+            ${detBadge}
             <span class="issue-count">${issues.length} issue${issues.length !== 1 ? "s" : ""}</span>
         </div>
 
         ${summaryHtml}
+
+        ${riskBreakdownHtml}
 
         <button class="rescan-btn" onclick="rescan()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -477,6 +631,8 @@ function buildHtml(report: ScanReport): string {
             Fix All ${issues.length} Issues
         </button>` : ""}
 
+        ${auditHtml}
+
         <script>
             const vscode = acquireVsCodeApi();
             function fixIssue(id)  { vscode.postMessage({ type: "fixIssue",  issueId: id }); }
@@ -491,7 +647,8 @@ function buildHtml(report: ScanReport): string {
 function buildSummaryHtml(
     total: number,
     counts: { critical: number; high: number; medium: number; low: number },
-    riskScore: number
+    riskScore: number,
+    summaryText?: string
 ): string {
     const riskColor = riskScore >= 70 ? "#e53935"
         : riskScore >= 40 ? "#fb8c00"
@@ -504,9 +661,14 @@ function buildSummaryHtml(
         counts.low > 0 ? `<span class="sev-chip low">${counts.low} Low</span>` : "",
     ].filter(Boolean).join("");
 
+    const summaryParagraph = summaryText
+        ? `<div class="summary-text">${escapeHtml(summaryText)}</div>`
+        : "";
+
     return `
     <div class="summary-section">
         <div class="summary-title">Project Summary</div>
+        ${summaryParagraph}
         <div class="severity-chips">${chips}</div>
         <div class="risk-bar-container">
             <div class="risk-label">
@@ -520,15 +682,68 @@ function buildSummaryHtml(
     </div>`;
 }
 
+function buildRiskBreakdownHtml(rb: RiskBreakdown): string {
+    const rows = (rb.violation_contributions ?? []).map(vc => {
+        const blastFactor = vc.blast_radius_factor !== undefined
+            ? `${vc.blast_radius_factor.toFixed(1)}×`
+            : "—";
+        return `
+            <tr>
+                <td><code>${escapeHtml(vc.rule_id)}</code></td>
+                <td>${escapeHtml(vc.severity)}</td>
+                <td>${vc.weighted_score.toFixed(1)}</td>
+                <td>${blastFactor}</td>
+            </tr>`;
+    }).join("");
+
+    return `
+    <details class="risk-breakdown">
+        <summary>📊 Risk Breakdown — ${rb.total_score.toFixed(0)}/100</summary>
+        <div class="risk-breakdown-body">
+            <div class="formula-text">${escapeHtml(rb.formula)}</div>
+            <table class="contrib-table">
+                <thead>
+                    <tr>
+                        <th>Rule</th>
+                        <th>Severity</th>
+                        <th>Score</th>
+                        <th>Blast</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+    </details>`;
+}
+
 function buildIssueCard(issue: BlastIssue, index: number): string {
     const sev = issue.severity ?? "low";
     const sevLabel = sev.toUpperCase();
 
     const patchPreview = (issue.patches ?? []).map(p => escapeHtml(p.new_code)).join("\n\n");
     const fileDisplay = issue.file ? escapeHtml(shortenPath(issue.file)) : "—";
-    const lineRange = issue.patches.length > 0
-        ? `${issue.patches[0].start_line} → ${issue.patches[0].end_line}`
-        : "—";
+
+    // Show exact line if available, else fall back to patch range
+    const lineDisplay = issue.line !== undefined
+        ? `Line ${issue.line}`
+        : (issue.patches.length > 0
+            ? `${issue.patches[0].start_line} → ${issue.patches[0].end_line}`
+            : "—");
+
+    // Rule ID tag
+    const ruleTag = issue.rule_id
+        ? `<span class="rule-tag">${escapeHtml(issue.rule_id)}</span>`
+        : "";
+
+    // Evidence section
+    const evidenceHtml = issue.evidence && issue.evidence.length > 0
+        ? `<details class="section">
+                <summary>Evidence (${issue.evidence.length})</summary>
+                <ul class="evidence-list">
+                    ${issue.evidence.map(e => `<li class="evidence-item"><span>${escapeHtml(e)}</span></li>`).join("")}
+                </ul>
+           </details>`
+        : "";
 
     const testImpactHtml = issue.testImpact && issue.testImpact.length > 0
         ? `<div class="test-impact">
@@ -541,6 +756,7 @@ function buildIssueCard(issue: BlastIssue, index: number): string {
         <div class="card" style="animation-delay:${index * 0.08}s">
             <div class="card-header ${sev}">
                 <span class="severity-badge">${sevLabel}</span>
+                ${ruleTag}
                 <span class="issue-title">${escapeHtml(issue.issue)}</span>
             </div>
             <div class="card-body">
@@ -549,8 +765,8 @@ function buildIssueCard(issue: BlastIssue, index: number): string {
                     <span class="meta-value" title="${escapeHtml(issue.file)}">${fileDisplay}</span>
                 </div>
                 <div class="meta-row">
-                    <span class="meta-label">Lines</span>
-                    <span class="meta-value">${lineRange}</span>
+                    <span class="meta-label">Line</span>
+                    <span class="meta-value">${lineDisplay}</span>
                 </div>
 
                 <details class="section" open>
@@ -562,6 +778,8 @@ function buildIssueCard(issue: BlastIssue, index: number): string {
                     <summary>Risk</summary>
                     <p class="risk-text">${escapeHtml(issue.risk)}</p>
                 </details>
+
+                ${evidenceHtml}
 
                 <details class="section">
                     <summary>Patch Preview</summary>
@@ -583,6 +801,27 @@ function buildIssueCard(issue: BlastIssue, index: number): string {
             </div>
         </div>
     `;
+}
+
+function buildAuditFooterHtml(report: ScanReport, scanId?: string): string {
+    const audit = report.audit;
+    if (!audit && !scanId) { return ""; }
+
+    const items: string[] = [];
+
+    if (audit) {
+        items.push(`<div class="audit-item"><span class="audit-label">Files:</span> ${audit.files_scanned}</div>`);
+        items.push(`<div class="audit-item"><span class="audit-label">Violations:</span> ${audit.violations_found}</div>`);
+        items.push(`<div class="audit-item"><span class="audit-label">Duration:</span> ${audit.duration_ms}ms</div>`);
+        items.push(`<div class="audit-item"><span class="audit-label">LLM Tokens:</span> ${audit.llm_tokens_used}</div>`);
+    }
+
+    const idDisplay = audit?.scan_id ?? scanId;
+    if (idDisplay) {
+        items.push(`<div class="audit-full">Scan ID: ${escapeHtml(idDisplay)}</div>`);
+    }
+
+    return `<div class="audit-footer">${items.join("")}</div>`;
 }
 
 // ── Utilities ───────────────────────────────────────────────

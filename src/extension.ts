@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { scanProject } from "./scan/scanProject";
+import { scanProject, getLastScanId } from "./scan/scanProject";
 import { registerDiagnostics } from "./ui/diagnostics";
 import { registerCodeLens } from "./ui/codelens";
 
@@ -25,7 +25,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (!result) { return; }
 
             lastScanResult = result;
-            updateBlastShieldPanel(result);
+            updateBlastShieldPanel(result, getLastScanId());
         })
     );
 
