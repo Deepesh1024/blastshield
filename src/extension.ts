@@ -1,87 +1,86 @@
-import * as vscode from "vscode";
-import { scanProject, getLastScanId } from "./scan/scanProject";
-import { registerDiagnostics } from "./ui/diagnostics";
-import { registerCodeLens } from "./ui/codelens";
-
-import { applyIssuePatches, applyAllPatches } from "./scan/applyPatches";
-import { showIssueDiff } from "./ui/diff";
-import { registerPanel, updateBlastShieldPanel, getLastScanResult } from "./ui/panel";
-import { ScanReport } from "./types/PatchResult";
-import { initScanHistory, recordScan, getScanHistory } from "./scan/scanHistory";
-
-let lastScanResult: ScanReport | null = null;
+import * as vscode from 'vscode';
+import { BackendClient } from './api/backendClient';
+import { ProjectCache } from './state/projectCache';
+import { PatchHistory } from './state/patchHistory';
+import { RollbackManager } from './patch/rollbackManager';
+import { PatchApplier } from './patch/patchApplier';
+import { ScanManager } from './scan/scanManager';
+import { registerDiagnostics } from './ui/diagnostics';
+import { registerCodeLens } from './ui/codelens';
+import { registerPanel, getLastScanResult } from './ui/panel';
+import { initScanHistory } from './scan/scanHistory';
+import { registerDiffPreview, showIssueDiffPreview } from './patch/diffPreview';
+import { ScanReport } from './types/PatchResult';
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log("BlastShield: activated");
+    console.log("BlastShield: activated (Architecture v2)");
 
-    // Initialize scan history cache from persisted state
+    // 1. Initialize State
+    // Legacy scan history (metrics)
     initScanHistory(context);
 
+    // New state
+    const cache = new ProjectCache(context);
+    const patchHistory = new PatchHistory(context); // Not used yet but initialized
+    const rollback = new RollbackManager();
+
+    // 2. Initialize Core Services
+    const client = new BackendClient(context.extensionPath);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "";
+    const applier = new PatchApplier(rollback, cache, workspaceRoot);
+
+    // 3. Initialize Managers
+    const scanManager = new ScanManager(client, cache);
+
+    // 4. Register UI Providers
     registerDiagnostics(context);
     registerCodeLens(context);
-
     registerPanel(context);
+    registerDiffPreview(context);
 
-    // ── Scan Project ──
+    // 5. Register Commands
     context.subscriptions.push(
         vscode.commands.registerCommand("blastshield.scan", async () => {
-            const result = await scanProject(context.extensionPath);
-            if (!result) { return; }
+            await scanManager.scanProject();
+        }),
 
-            lastScanResult = result;
-
-            // Record scan in history and compute delta
-            const scanId = getLastScanId();
-            const delta = recordScan(result, scanId);
-            const history = getScanHistory();
-
-            updateBlastShieldPanel(result, scanId, history, delta);
-        })
-    );
-
-    // ── Fix Single Issue ──
-    context.subscriptions.push(
         vscode.commands.registerCommand("blastshield.fixIssue", async (issueId?: string) => {
-            const report = lastScanResult ?? getLastScanResult();
-            if (!report) {
-                vscode.window.showWarningMessage("BlastShield: No scan results. Run a scan first.");
-                return;
-            }
             if (!issueId) {
                 vscode.window.showWarningMessage("BlastShield: No issue ID provided.");
                 return;
             }
-            await applyIssuePatches(report, issueId);
-        })
-    );
+            await scanManager.fixIssue(issueId, applier);
+        }),
 
-    // ── Fix All Issues ──
-    context.subscriptions.push(
         vscode.commands.registerCommand("blastshield.fixAll", async () => {
-            const report = lastScanResult ?? getLastScanResult();
-            if (!report) {
-                vscode.window.showWarningMessage("BlastShield: No scan results. Run a scan first.");
+            await scanManager.fixAllSequential(applier);
+        }),
+
+        vscode.commands.registerCommand("blastshield.viewIssueDiff", async (issueId?: string) => {
+            if (!issueId) { return; }
+            const report = getLastScanResult();
+            if (!report) { return; }
+
+            const issue = report.issues.find(i => i.id === issueId);
+            if (!issue || !issue.patches?.length) {
+                vscode.window.showInformationMessage("No patches available for this issue.");
                 return;
             }
-            await applyAllPatches(report);
+
+            await showIssueDiffPreview(
+                issue.patches,
+                issue.issue,
+                workspaceRoot
+            );
+        }),
+
+        vscode.commands.registerCommand("blastshield.rollback", async () => {
+            await rollback.undoLast();
         })
     );
 
-    // ── View Issue Diff ──
-    context.subscriptions.push(
-        vscode.commands.registerCommand("blastshield.viewIssueDiff", async (issueId?: string) => {
-            const report = lastScanResult ?? getLastScanResult();
-            if (!report) {
-                vscode.window.showWarningMessage("BlastShield: No scan results. Run a scan first.");
-                return;
-            }
-            if (!issueId) {
-                vscode.window.showWarningMessage("BlastShield: No issue ID provided.");
-                return;
-            }
-            await showIssueDiff(report, issueId);
-        })
-    );
+    // 6. Hook Events
+    scanManager.registerOnSave(context);
 }
 
 export function deactivate() { }

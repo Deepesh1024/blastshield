@@ -1,6 +1,6 @@
-import * as vscode from "vscode";
-import * as path from "path";
-import { ScanReport, BlastIssue, SinglePatch } from "../types/PatchResult";
+import * as vscode from 'vscode';
+import * as path from 'path';
+import { ScanReport, BlastIssue, SinglePatch } from '../types/PatchResult';
 
 /**
  * Apply patches for a single issue by its ID.

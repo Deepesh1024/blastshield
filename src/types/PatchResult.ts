@@ -72,3 +72,21 @@ export interface PatchResult {
     explanation: string;
     patches: SinglePatch[];
 }
+
+export interface PatchRequest {
+    issue_id: string;
+    file_content: string;
+    file_hash: string;
+}
+
+export interface PatchResponse {
+    status: "approved" | "rejected" | "error";
+    rule_id: string;
+    file_path: string;
+    line_start: number;
+    line_end: number;
+    new_code: string;
+    risk_score_before: number;
+    risk_score_after: number;
+    explanation: string;
+}
